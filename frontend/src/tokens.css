@@ -1,0 +1,85 @@
+:root {
+  --space-3xs: 2px;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.15rem;
+  --text-xl: 1.35rem;
+  --text-2xl: 1.65rem;
+
+  --text-display-s: 1.35rem;
+  --text-display: 1.65rem;
+  --text-section: 1.15rem;
+  --text-title: 1rem;
+  --text-lead: 0.95rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+  --dur-long: 350ms;
+
+  --color-paper: oklch(14% 0.015 240);
+  --color-paper-2: oklch(18% 0.018 240);
+  --color-paper-3: oklch(22% 0.022 240);
+  --color-paper-hover: oklch(25% 0.025 240);
+  --color-paper-subtle: oklch(16% 0.015 240);
+
+  --color-ink: oklch(96% 0.01 240);
+  --color-ink-2: oklch(80% 0.015 240);
+  --color-muted: oklch(62% 0.018 240);
+
+  --color-rule: oklch(28% 0.02 240);
+  --color-rule-subtle: oklch(23% 0.015 240);
+  --color-rule-focus: oklch(76% 0.16 175);
+
+  --color-accent: oklch(76% 0.16 175);
+  --color-accent-dim: oklch(76% 0.16 175 / 0.14);
+  --color-accent-ink: oklch(14% 0.02 240);
+  --color-focus: oklch(76% 0.16 175);
+
+  --color-emerald: oklch(75% 0.17 155);
+  --color-emerald-dim: oklch(75% 0.17 155 / 0.15);
+  --color-amber: oklch(78% 0.16 80);
+  --color-amber-dim: oklch(78% 0.16 80 / 0.15);
+  --color-alert: oklch(65% 0.22 25);
+  --color-alert-dim: oklch(65% 0.22 25 / 0.18);
+  --color-error: oklch(65% 0.22 25);
+  --color-success: oklch(75% 0.17 155);
+
+  --font-display: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+  --font-outlier: var(--font-mono);
+
+  --radius-card: 6px;
+  --radius-sm: 4px;
+  --radius-pill: 999px;
+  --rule-hair: 1px;
+  --shadow-card: none;
+  --tracking-display: -0.015em;
+
+  --container: 1400px;
+  --gutter: 24px;
+  --gap-columns: 24px;
+  --section-gap-s: 32px;
+  --section-gap: 48px;
+  --section-gap-l: 64px;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+}

@@ -1,0 +1,264 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: brand · redesign: full
+ * paper: oklch(14% 0.015 240) · accent: oklch(76% 0.16 175) · display: Outfit · body: Outfit
+ * nav: kept · signature: live edge video feed · states: full, empty, loading, error
+ * axes: dark/geometric-sans/chromatic-teal · posture: settled · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H5 E5 S5 R5 V4 · weakest: P, hardware telemetry UI demands pure functional clarity over decorative tropes; replaced faux glassmorphism with tactile instrument panels and calibrated signal states */
+@import url("./tokens.css");
+@import url("./base.css");
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-paper);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-rule);
+  border-radius: var(--radius-sm);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent);
+}
+
+/* Tactile Console Panels */
+.console-panel {
+  background-color: var(--color-paper-2);
+  color: var(--color-ink);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  box-sizing: border-box;
+}
+
+.console-panel-interactive {
+  background-color: var(--color-paper-2);
+  color: var(--color-ink);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-card);
+  transition: border-color var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out);
+}
+
+.console-panel-interactive:hover {
+  border-color: var(--color-rule-focus);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  border: var(--rule-hair) solid transparent;
+  transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+  user-select: none;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background-color: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-weight: 600;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: color-mix(in oklab, var(--color-accent) 90%, var(--color-ink));
+}
+
+.btn-secondary {
+  background-color: var(--color-paper-3);
+  border-color: var(--color-rule);
+  color: var(--color-ink);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--color-paper-hover);
+  border-color: var(--color-rule-focus);
+}
+
+.btn-danger {
+  background-color: transparent;
+  border-color: var(--color-alert);
+  color: var(--color-alert);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--color-alert-dim);
+}
+
+/* Form Inputs */
+.input-field {
+  background-color: var(--color-paper);
+  border: var(--rule-hair) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  outline: none;
+  transition: border-color var(--dur-short) var(--ease-out);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.input-field:focus-visible {
+  border-color: var(--color-focus);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+/* Range Input */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-paper);
+  border: var(--rule-hair) solid var(--color-rule);
+  outline: none;
+}
+
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background-color: var(--color-accent);
+  cursor: pointer;
+  border: 1px solid var(--color-rule);
+  transition: transform var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+/* Tactile Switch Toggle */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: var(--color-paper-3);
+  border: var(--rule-hair) solid var(--color-rule);
+  transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
+  border-radius: var(--radius-pill);
+}
+
+.slider::before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--color-ink-2);
+  transition: transform var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out);
+  border-radius: var(--radius-pill);
+}
+
+.switch input:focus-visible + .slider {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.switch input:checked + .slider {
+  background-color: var(--color-emerald-dim);
+  border-color: var(--color-emerald);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
+  background-color: var(--color-emerald);
+}
+
+/* Status Indicator Beacon */
+.beacon-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  display: inline-block;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.beacon-online {
+  background-color: var(--color-emerald);
+}
+
+.beacon-offline {
+  background-color: var(--color-alert);
+}
+
+/* Shutter flash animation */
+@keyframes flash-shutter {
+  0% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
+.capture-flash {
+  position: absolute;
+  inset: 0;
+  background-color: var(--color-ink);
+  pointer-events: none;
+  z-index: var(--z-modal);
+  animation: flash-shutter 0.25s var(--ease-out) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-flash {
+    animation-duration: 0.01ms;
+  }
+}
