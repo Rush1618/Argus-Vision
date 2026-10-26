@@ -12,7 +12,11 @@ import {
   CheckCircle2,
   Usb,
   Wifi,
-  Hand
+  Hand,
+  Trash2,
+  PlusCircle,
+  Sliders,
+  Monitor
 } from 'lucide-react';
 
 export default function ControlPanel({ 
@@ -25,14 +29,41 @@ export default function ControlPanel({
   flashBrightness, 
   onBrightnessChange, 
   onSnapshot,
-  isCapturing
+  isCapturing,
+  stats = {},
+  onClearCaptions,
+  onTrainGesture
 }) {
   const [comPort, setComPort] = useState(config.com_port || 'COM9');
   const [ipInput, setIpInput] = useState(config.esp32_ip || '192.168.4.1');
-  const [sourceType, setSourceType] = useState(config.source_type || 'usb_serial');
+  const [sourceType, setSourceType] = useState(config.source_type || 'screen');
   const [savedBadge, setSavedBadge] = useState(false);
   const [autoCapture, setAutoCapture] = useState(config.auto_capture_motion || false);
-  const [motionSens, _setMotionSens] = useState(25);
+  const [motionSens, setMotionSens] = useState(25);
+  const [customPhrase, setCustomPhrase] = useState('');
+  const [trainingStatus, setTrainingStatus] = useState(null);
+  const [isTraining, setIsTraining] = useState(false);
+
+  const handleTrainSubmit = async (e) => {
+    e.preventDefault();
+    if (!customPhrase.trim()) return;
+    setIsTraining(true);
+    setTrainingStatus(null);
+    try {
+      const res = await onTrainGesture(customPhrase.trim());
+      if (res.success) {
+        setTrainingStatus({ type: 'success', msg: `Trained '${res.phrase}' successfully!` });
+        setCustomPhrase('');
+      } else {
+        setTrainingStatus({ type: 'error', msg: res.error || 'Failed to train sign' });
+      }
+    } catch {
+      setTrainingStatus({ type: 'error', msg: 'Failed to train sign' });
+    } finally {
+      setIsTraining(false);
+      setTimeout(() => setTrainingStatus(null), 4000);
+    }
+  };
 
   const handleSaveNetwork = (e) => {
     e.preventDefault();
@@ -76,10 +107,10 @@ export default function ControlPanel({
         <form onSubmit={handleSaveNetwork} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
             {[
-              { id: 'usb_serial', label: 'USB serial (COM9)', icon: Usb },
+              { id: 'screen', label: 'Laptop screen', icon: Monitor },
+              { id: 'usb_serial', label: 'USB serial (ESP32)', icon: Usb },
               { id: 'esp32_wifi', label: 'Wi-Fi network', icon: Wifi },
-              { id: 'webcam', label: 'USB webcam', icon: Camera },
-              { id: 'simulated', label: 'Simulation stream', icon: Radio }
+              { id: 'webcam', label: 'USB webcam', icon: Camera }
             ].map((src) => {
               const Icon = src.icon;
               const isSelected = sourceType === src.id;
@@ -190,6 +221,107 @@ export default function ControlPanel({
         </div>
       </div>
 
+      {/* Sign Language Studio (Active when mode is gesture) */}
+      {activeMode === 'gesture' && (
+        <div className="console-panel" style={{ padding: '20px', borderColor: 'var(--color-accent)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Hand size={16} color="var(--color-accent)" />
+              <h2 style={{ fontSize: 'var(--text-title)', fontWeight: 600, color: 'var(--color-ink)' }}>Sign language & custom trainer</h2>
+            </div>
+            <span
+              style={{
+                fontSize: 'var(--text-xs)',
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--color-accent)',
+                backgroundColor: 'var(--color-paper-3)',
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-sm)',
+                border: 'var(--rule-hair) solid var(--color-rule)'
+              }}
+            >
+              {stats.custom_gestures_count || 0} custom signs
+            </span>
+          </div>
+
+          {/* Real-time Subtitle readout */}
+          <div
+            style={{
+              backgroundColor: 'var(--color-paper-3)',
+              padding: '12px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'var(--rule-hair) solid var(--color-rule)',
+              marginBottom: '14px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-muted)', fontWeight: 600 }}>
+                Live CC Sentence Buffer
+              </span>
+              <button
+                type="button"
+                onClick={onClearCaptions}
+                className="btn btn-secondary"
+                style={{ padding: '2px 8px', fontSize: 'var(--text-xs)', display: 'flex', alignItems: 'center', gap: '4px' }}
+                title="Clear subtitle buffer"
+              >
+                <Trash2 size={12} /> Clear
+              </button>
+            </div>
+            <div
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--text-sm)',
+                color: stats.current_sentence ? 'var(--color-emerald)' : 'var(--color-muted)',
+                minHeight: '24px',
+                wordBreak: 'break-word'
+              }}
+            >
+              {stats.current_sentence ? `"${stats.current_sentence}"` : '(Hold hands in view to sign…)'}
+            </div>
+          </div>
+
+          {/* Quick Sign Pose Trainer */}
+          <form onSubmit={handleTrainSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--color-ink-2)' }}>
+              Train new sign from current hand pose:
+            </span>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                value={customPhrase}
+                onChange={(e) => setCustomPhrase(e.target.value)}
+                placeholder="Sign name (e.g. HELP, WATER)"
+                className="input-field"
+                style={{ flex: 1, textTransform: 'uppercase' }}
+                aria-label="New sign phrase name"
+              />
+              <button
+                type="submit"
+                disabled={isTraining || !customPhrase.trim()}
+                className="btn btn-primary"
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                <PlusCircle size={14} />
+                <span>{isTraining ? 'Training…' : 'Train sign'}</span>
+              </button>
+            </div>
+
+            {trainingStatus && (
+              <div
+                style={{
+                  fontSize: 'var(--text-xs)',
+                  color: trainingStatus.type === 'success' ? 'var(--color-emerald)' : 'var(--color-alert)',
+                  marginTop: '4px'
+                }}
+              >
+                {trainingStatus.msg}
+              </div>
+            )}
+          </form>
+        </div>
+      )}
+
       {/* Hardware Flashlight & Triggers */}
       <div className="console-panel" style={{ padding: '20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
@@ -247,6 +379,27 @@ export default function ControlPanel({
               />
               <span className="slider" />
             </label>
+          </div>
+
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--text-xs)', color: 'var(--color-muted)', marginBottom: '6px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Sliders size={12} /> Motion threshold sensitivity
+              </span>
+              <span className="num" style={{ fontFamily: 'var(--font-mono)' }}>{motionSens} Δ</span>
+            </div>
+            <input
+              type="range"
+              aria-label="Motion threshold sensitivity"
+              min="10"
+              max="80"
+              value={motionSens}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setMotionSens(val);
+                onConfigUpdate({ motion_threshold: val });
+              }}
+            />
           </div>
 
           <button

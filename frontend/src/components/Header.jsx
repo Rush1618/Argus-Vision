@@ -75,7 +75,7 @@ export default function Header({ stats, isConnected, esp32Ip }) {
             {isConnected ? 'Online' : 'Disconnected'}
           </span>
           <span style={{ color: 'var(--color-ink-2)' }}>
-            {esp32Ip || '192.168.1.100'}
+            {esp32Ip || '192.168.4.1'}
           </span>
         </div>
 

@@ -17,8 +17,8 @@ export default function App() {
     source: 'esp32'
   });
   const [config, setConfig] = useState({
-    esp32_ip: '192.168.1.100',
-    source_type: 'webcam',
+    esp32_ip: '192.168.4.1',
+    source_type: 'screen',
     flash_state: false,
     flash_brightness: 255,
     auto_capture_motion: false
@@ -31,24 +31,28 @@ export default function App() {
 
   // Poll real-time telemetry from AI backend
   useEffect(() => {
+    let active = true;
     const fetchStats = async () => {
       try {
         const res = await fetch('http://localhost:5000/api/stats');
-        if (res.ok) {
+        if (res.ok && active) {
           const data = await res.json();
           setStats(data);
           setIsConnected(Boolean(data.connected));
-        } else {
+        } else if (active) {
           setIsConnected(false);
         }
       } catch {
-        setIsConnected(false);
+        if (active) setIsConnected(false);
       }
     };
 
     fetchStats();
     const interval = setInterval(fetchStats, 450);
-    return () => clearInterval(interval);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const refreshCaptures = async () => {
@@ -65,20 +69,30 @@ export default function App() {
 
   // Fetch initial config and captures
   useEffect(() => {
-    const fetchConfig = async () => {
+    let isMounted = true;
+    const initData = async () => {
       try {
         const res = await fetch('http://localhost:5000/api/config');
-        if (res.ok) {
+        if (res.ok && isMounted) {
           const data = await res.json();
           if (data.config) setConfig(data.config);
         }
       } catch {
         // Offline fallback
       }
+      try {
+        const res = await fetch('http://localhost:5000/api/captures');
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          setCaptures(data);
+        }
+      } catch {
+        // Offline fallback
+      }
     };
 
-    fetchConfig();
-    refreshCaptures();
+    initData();
+    return () => { isMounted = false; };
   }, []);
 
   const handleModeChange = async (mode) => {
@@ -150,6 +164,46 @@ export default function App() {
     }
   };
 
+  const handleDeleteCapture = async (filename) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/captures/${encodeURIComponent(filename)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setCaptures((prev) => prev.filter((c) => c.filename !== filename));
+      }
+    } catch (err) {
+      console.error('Delete capture failed', err);
+    }
+  };
+
+  const handleClearCaptions = async () => {
+    try {
+      await fetch('http://localhost:5000/api/captions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear' })
+      });
+      setStats((prev) => ({ ...prev, current_sentence: '', gesture: 'None' }));
+    } catch (err) {
+      console.error('Clear captions failed', err);
+    }
+  };
+
+  const handleTrainGesture = async (phrase) => {
+    try {
+      const res = await fetch('http://localhost:5000/api/train_gesture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phrase })
+      });
+      return await res.json();
+    } catch (err) {
+      console.error('Train gesture failed', err);
+      return { success: false, error: 'Network error communicating with backend' };
+    }
+  };
+
   return (
     <div
       style={{
@@ -186,11 +240,13 @@ export default function App() {
             isConnected={isConnected}
             onSnapshot={handleSnapshot}
             isFlashing={isFlashing}
+            onClearCaptions={handleClearCaptions}
           />
 
           <SnapshotGallery
             captures={captures}
             onRefresh={refreshCaptures}
+            onDelete={handleDeleteCapture}
           />
         </div>
 
@@ -207,6 +263,9 @@ export default function App() {
             onBrightnessChange={handleBrightnessChange}
             onSnapshot={handleSnapshot}
             isCapturing={isCapturing}
+            stats={stats}
+            onClearCaptions={handleClearCaptions}
+            onTrainGesture={handleTrainGesture}
           />
 
           {/* Quick Hardware Pinout & Flashing Guide */}

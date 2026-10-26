@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { Images, Download, X, RefreshCw } from 'lucide-react';
+import { Images, Download, X, RefreshCw, Trash2 } from 'lucide-react';
 
-export default function SnapshotGallery({ captures, onRefresh }) {
+export default function SnapshotGallery({ captures, onRefresh, onDelete }) {
   const [selectedImage, setSelectedImage] = useState(null);
+
+  const handleDelete = (filename) => {
+    if (onDelete) {
+      onDelete(filename);
+      if (selectedImage && selectedImage.filename === filename) {
+        setSelectedImage(null);
+      }
+    }
+  };
 
   return (
     <div className="console-panel" style={{ padding: '20px', marginTop: '20px' }}>
@@ -99,21 +108,35 @@ export default function SnapshotGallery({ captures, onRefresh }) {
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    maxWidth: '120px'
+                    maxWidth: '100px'
                   }}
                 >
                   {item.filename}
                 </span>
-                <a
-                  href={`http://localhost:5000${item.url}`}
-                  download={item.filename}
-                  onClick={(e) => e.stopPropagation()}
-                  className="btn"
-                  style={{ padding: '4px', color: 'var(--color-accent)' }}
-                  title="Download file"
-                >
-                  <Download size={14} />
-                </a>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <a
+                    href={`http://localhost:5000${item.url}`}
+                    download={item.filename}
+                    onClick={(e) => e.stopPropagation()}
+                    className="btn"
+                    style={{ padding: '4px', color: 'var(--color-accent)' }}
+                    title="Download file"
+                  >
+                    <Download size={14} />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(item.filename);
+                    }}
+                    className="btn"
+                    style={{ padding: '4px', color: 'var(--color-alert)' }}
+                    title="Delete snapshot"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -167,6 +190,14 @@ export default function SnapshotGallery({ captures, onRefresh }) {
                 >
                   <Download size={14} /> Download
                 </a>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(selectedImage.filename)}
+                  className="btn btn-secondary"
+                  style={{ padding: '6px 12px', fontSize: 'var(--text-xs)', color: 'var(--color-alert)' }}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
                 <button
                   type="button"
                   onClick={() => setSelectedImage(null)}

@@ -19,6 +19,7 @@ class VisionDetector:
         self.models_dir = os.path.join(self.backend_dir, "models")
         os.makedirs(self.models_dir, exist_ok=True)
         self.custom_gestures_file = os.path.join(self.models_dir, "custom_gestures.json")
+        self.lock = threading.Lock()
         
         # State variables
         self.prev_frame = None
@@ -84,20 +85,22 @@ class VisionDetector:
         if not phrase or not vector or len(vector) != 63:
             return False
         clean_phrase = phrase.strip().upper()
-        self.custom_gestures[clean_phrase] = vector
-        try:
-            with open(self.custom_gestures_file, "w") as f:
-                json.dump(self.custom_gestures, f, indent=2)
-            print(f"[VisionDetector] Trained custom gesture: '{clean_phrase}'")
-            return True
-        except Exception as e:
-            print(f"[VisionDetector] Error saving custom gesture: {e}")
-            return False
+        with self.lock:
+            self.custom_gestures[clean_phrase] = vector
+            try:
+                with open(self.custom_gestures_file, "w") as f:
+                    json.dump(self.custom_gestures, f, indent=2)
+                print(f"[VisionDetector] Trained custom gesture: '{clean_phrase}'")
+                return True
+            except Exception as e:
+                print(f"[VisionDetector] Error saving custom gesture: {e}")
+                return False
 
     def clear_captions(self):
-        self.caption_words.clear()
-        self.current_sentence = ""
-        self.last_committed_word = ""
+        with self.lock:
+            self.caption_words.clear()
+            self.current_sentence = ""
+            self.last_committed_word = ""
 
     # -------------------------------------------------------------
     # Asynchronous Model Pre-Warming (Zero Switching Lag)
@@ -432,18 +435,19 @@ class VisionDetector:
         token = active_tokens[0]
         now = time.time()
 
-        if token == self.last_stable_word:
-            # If held for >= 0.6 seconds, commit to active sentence
-            if (now - self.stable_word_start) >= 0.6:
-                if not self.caption_words or self.caption_words[-1] != token:
-                    self.caption_words.append(token)
-                    self.last_committed_word = token
-                    if len(self.caption_words) > 8:
-                        self.caption_words.pop(0)
-                self.stable_word_start = now + 0.4
-        else:
-            self.last_stable_word = token
-            self.stable_word_start = now
+        with self.lock:
+            if token == self.last_stable_word:
+                # If held for >= 0.6 seconds, commit to active sentence
+                if (now - self.stable_word_start) >= 0.6:
+                    if not self.caption_words or self.caption_words[-1] != token:
+                        self.caption_words.append(token)
+                        self.last_committed_word = token
+                        if len(self.caption_words) > 8:
+                            self.caption_words.pop(0)
+                    self.stable_word_start = now + 0.4
+            else:
+                self.last_stable_word = token
+                self.stable_word_start = now
 
     # -------------------------------------------------------------
     # Custom Gesture Landmark Normalization & Cosine Matching
@@ -468,14 +472,19 @@ class VisionDetector:
 
     def _match_custom_gesture(self, norm_vec):
         """Matches normalized hand vector against user-trained gestures."""
-        if not norm_vec or not self.custom_gestures:
+        if not norm_vec:
             return None, 0.0
+
+        with self.lock:
+            if not self.custom_gestures:
+                return None, 0.0
+            gestures_snapshot = list(self.custom_gestures.items())
 
         v1 = np.array(norm_vec, dtype=np.float32)
         best_name = None
         best_sim = 0.0
 
-        for phrase, template in self.custom_gestures.items():
+        for phrase, template in gestures_snapshot:
             v2 = np.array(template, dtype=np.float32)
             sim = float(np.dot(v1, v2))
             if sim > best_sim:

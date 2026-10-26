@@ -5,6 +5,7 @@ import os
 import requests
 import numpy as np
 import serial
+import mss
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from detector import VisionDetector
@@ -17,7 +18,7 @@ os.makedirs(CAPTURES_DIR, exist_ok=True)
 
 # Configuration & State
 config = {
-    "source_type": "webcam",   # Default to webcam so hands & camera stream work immediately!
+    "source_type": "screen",   # Defaults to laptop screen for real optical stream
     "com_port": "COM9",
     "baud_rate": 921600,
     "esp32_ip": "192.168.4.1",
@@ -38,15 +39,41 @@ last_frame_time = 0
 lock = threading.Lock()
 ser_instance = None
 ser_lock = threading.Lock()
+current_serial_port = None
+current_serial_baud = None
+
+import platform
+IS_WINDOWS = platform.system() == "Windows"
+
+def open_webcam(index):
+    if IS_WINDOWS:
+        try:
+            c = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+            if c.isOpened():
+                return c
+        except Exception:
+            pass
+    return cv2.VideoCapture(index)
 
 def get_serial_connection():
-    global ser_instance
+    global ser_instance, current_serial_port, current_serial_baud
     with ser_lock:
-        if ser_instance is None or not ser_instance.is_open:
+        target_port = config["com_port"]
+        target_baud = config["baud_rate"]
+        if ser_instance is not None:
+            if not ser_instance.is_open or current_serial_port != target_port or current_serial_baud != target_baud:
+                try:
+                    ser_instance.close()
+                except Exception:
+                    pass
+                ser_instance = None
+        if ser_instance is None:
             try:
-                ser_instance = serial.Serial(config["com_port"], config["baud_rate"], timeout=0.05)
+                ser_instance = serial.Serial(target_port, target_baud, timeout=0.05)
                 ser_instance.dtr = False
                 ser_instance.rts = False
+                current_serial_port = target_port
+                current_serial_baud = target_baud
                 time.sleep(0.05)
             except Exception:
                 ser_instance = None
@@ -60,34 +87,29 @@ def send_serial_cmd(cmd_str):
             except Exception:
                 pass
 
-def get_esp32_stream_url():
-    ip = config["esp32_ip"].strip().replace("http://", "").replace("/", "")
-    return f"http://{ip}:81/stream"
+def get_esp32_host():
+    raw = config["esp32_ip"].strip()
+    if raw.startswith("http://"):
+        raw = raw[7:]
+    elif raw.startswith("https://"):
+        raw = raw[8:]
+    raw = raw.split("/")[0]
+    return raw.split(":")[0]
 
-def generate_simulated_frame(message="SEARCHING FOR CAMERA..."):
+def get_esp32_stream_url():
+    host = get_esp32_host()
+    return f"http://{host}:81/stream"
+
+sct_instance = None
+
+def generate_simulated_frame(message="STANDBY..."):
     w, h = 640, 480
     frame = np.zeros((h, w, 3), dtype=np.uint8)
-    for x in range(0, w, 40):
-        cv2.line(frame, (x, 0), (x, h), (30, 20, 10), 1)
-    for y in range(0, h, 40):
-        cv2.line(frame, (0, y), (w, y), (30, 20, 10), 1)
-
-    t = time.time()
-    cx, cy = w // 2, h // 2
-    radius = 120
-    cv2.circle(frame, (cx, cy), radius, (0, 120, 255), 1)
-    cv2.circle(frame, (cx, cy), radius // 2, (0, 80, 180), 1)
-    angle = (t * 2) % (2 * np.pi)
-    end_x = int(cx + radius * np.cos(angle))
-    end_y = int(cy + radius * np.sin(angle))
-    cv2.line(frame, (cx, cy), (end_x, end_y), (0, 255, 200), 2)
-
-    cv2.putText(frame, message, (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 200, 255), 2)
-    cv2.putText(frame, f"Active Source: {config['source_type'].upper()}", (40, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 160), 1)
+    cv2.putText(frame, message, (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 180), 2)
     return frame
 
 def video_capture_worker():
-    global latest_raw_frame, latest_processed_frame, latest_stats, last_frame_time
+    global latest_raw_frame, latest_processed_frame, latest_stats, last_frame_time, sct_instance
     cap = None
     last_source = None
     stream_response = None
@@ -171,36 +193,74 @@ def video_capture_worker():
                 except Exception:
                     stream_response = None
 
+            elif curr_source == "screen":
+                try:
+                    if sct_instance is None:
+                        sct_instance = mss.mss()
+                    mon = sct_instance.monitors[1] if len(sct_instance.monitors) > 1 else sct_instance.monitors[0]
+                    sct_img = sct_instance.grab(mon)
+                    raw_screen = np.array(sct_img)
+                    bgr = cv2.cvtColor(raw_screen, cv2.COLOR_BGRA2BGR)
+                    h, w = bgr.shape[:2]
+                    target_w = 640
+                    target_h = int(h * (target_w / w))
+                    frame = cv2.resize(bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                    last_frame_time = time.time()
+                except Exception:
+                    sct_instance = None
+
+            elif curr_source == "simulated":
+                try:
+                    if sct_instance is None:
+                        sct_instance = mss.mss()
+                    mon = sct_instance.monitors[1] if len(sct_instance.monitors) > 1 else sct_instance.monitors[0]
+                    sct_img = sct_instance.grab(mon)
+                    raw_screen = np.array(sct_img)
+                    bgr = cv2.cvtColor(raw_screen, cv2.COLOR_BGRA2BGR)
+                    h, w = bgr.shape[:2]
+                    target_w = 640
+                    target_h = int(h * (target_w / w))
+                    frame = cv2.resize(bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                    last_frame_time = time.time()
+                except Exception:
+                    sct_instance = None
+
             elif curr_source == "webcam":
                 if cap is None or last_source != "webcam":
-                    if cap: cap.release()
-                    cap = cv2.VideoCapture(config["webcam_index"], cv2.CAP_DSHOW)
+                    if cap:
+                        cap.release()
+                    cap = open_webcam(config["webcam_index"])
                     last_source = "webcam"
                 
-                success, f = cap.read()
+                success, f = cap.read() if cap and cap.isOpened() else (False, None)
                 if success and f is not None:
                     frame = f
                     last_frame_time = time.time()
                 else:
-                    # Retry with default backend if DSHOW failed
-                    if cap: cap.release()
+                    if cap:
+                        cap.release()
                     cap = cv2.VideoCapture(config["webcam_index"])
-                    success, f = cap.read()
+                    success, f = cap.read() if cap and cap.isOpened() else (False, None)
                     if success and f is not None:
                         frame = f
                         last_frame_time = time.time()
 
-            # If selected hardware source (ESP32 / COM port) has no connection, fallback to active camera
-            if frame is None and (time.time() - last_frame_time > 3.0):
-                if cap is None or last_source != "webcam":
-                    if cap: cap.release()
-                    cap = cv2.VideoCapture(config["webcam_index"], cv2.CAP_DSHOW)
-                    last_source = "webcam"
-                if cap and cap.isOpened():
-                    s, f = cap.read()
-                    if s and f is not None:
-                        frame = f
-                        last_frame_time = time.time()
+            # If selected hardware source has no camera connected, gracefully fallback to laptop screen
+            if frame is None and (time.time() - last_frame_time > 2.0):
+                try:
+                    if sct_instance is None:
+                        sct_instance = mss.mss()
+                    mon = sct_instance.monitors[1] if len(sct_instance.monitors) > 1 else sct_instance.monitors[0]
+                    sct_img = sct_instance.grab(mon)
+                    raw_screen = np.array(sct_img)
+                    bgr = cv2.cvtColor(raw_screen, cv2.COLOR_BGRA2BGR)
+                    h, w = bgr.shape[:2]
+                    target_w = 640
+                    target_h = int(h * (target_w / w))
+                    frame = cv2.resize(bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                    last_frame_time = time.time()
+                except Exception:
+                    sct_instance = None
 
             is_conn = (time.time() - last_frame_time) < 1.5
 
@@ -244,10 +304,11 @@ def stream_generator(use_ai=True):
     while True:
         with lock:
             jpeg_bytes = latest_ai_jpeg if use_ai else latest_raw_jpeg
-            is_stale = (time.time() - last_frame_time > 2.0)
-            if jpeg_bytes is None or is_stale:
-                sim_frame = generate_simulated_frame()
-                _, buffer = cv2.imencode('.jpg', sim_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if jpeg_bytes is None:
+                standby = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(standby, "INITIALIZING STREAM...", (140, 240),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 180), 2)
+                _, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 jpeg_bytes = buffer.tobytes()
 
         yield (b'--frame\r\n'
@@ -307,8 +368,8 @@ def trigger_flash():
             send_serial_cmd("L0")
     else:
         try:
-            ip = config["esp32_ip"].strip().replace("http://", "").replace("/", "")
-            url = f"http://{ip}/led?state={1 if state else 0}&brightness={brightness}"
+            host = get_esp32_host()
+            url = f"http://{host}/led?state={1 if state else 0}&brightness={brightness}"
             requests.get(url, timeout=1.5)
         except Exception:
             pass
@@ -329,20 +390,40 @@ def manual_capture():
 @app.route('/api/captures', methods=['GET'])
 def list_captures():
     files = []
-    for f in sorted(os.listdir(CAPTURES_DIR), reverse=True):
+    try:
+        entries = sorted(os.listdir(CAPTURES_DIR), reverse=True)
+    except Exception:
+        entries = []
+    for f in entries:
         if f.lower().endswith(('.jpg', '.jpeg', '.png')):
             filepath = os.path.join(CAPTURES_DIR, f)
-            files.append({
-                "filename": f,
-                "url": f"/captures/{f}",
-                "size_kb": round(os.path.getsize(filepath) / 1024, 1),
-                "timestamp": os.path.getmtime(filepath)
-            })
+            try:
+                files.append({
+                    "filename": f,
+                    "url": f"/captures/{f}",
+                    "size_kb": round(os.path.getsize(filepath) / 1024, 1),
+                    "timestamp": os.path.getmtime(filepath)
+                })
+            except OSError:
+                continue
     return jsonify(files)
 
 @app.route('/captures/<path:filename>')
 def serve_capture(filename):
-    return send_from_directory(CAPTURES_DIR, filename)
+    safe_name = os.path.basename(filename)
+    return send_from_directory(CAPTURES_DIR, safe_name)
+
+@app.route('/api/captures/<path:filename>', methods=['DELETE'])
+def delete_capture(filename):
+    safe_name = os.path.basename(filename)
+    filepath = os.path.join(CAPTURES_DIR, safe_name)
+    if os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            return jsonify({"success": True, "message": f"{safe_name} deleted"})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": False, "error": "File not found"}), 404
 
 @app.route('/api/captions', methods=['GET', 'POST'])
 def handle_captions():

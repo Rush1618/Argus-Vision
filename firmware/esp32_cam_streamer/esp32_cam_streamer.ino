@@ -246,24 +246,26 @@ void loop() {
     else if (cmd.startsWith("LB")) set_flash(cmd.substring(2).toInt());
   }
 
-  // Capture frame & stream over USB Serial
+  // Capture frame & stream over USB Serial if port is active
   camera_fb_t *fb = esp_camera_fb_get();
   if (fb) {
     if (fb->format == PIXFORMAT_JPEG && fb->len > 0) {
-      uint8_t header[8];
-      header[0] = 0xFF;
-      header[1] = 0xAA;
-      header[2] = 0x55;
-      header[3] = 0xFF;
-      
-      uint32_t len = fb->len;
-      header[4] = (uint8_t)(len & 0xFF);
-      header[5] = (uint8_t)((len >> 8) & 0xFF);
-      header[6] = (uint8_t)((len >> 16) & 0xFF);
-      header[7] = (uint8_t)((len >> 24) & 0xFF);
+      if (Serial.availableForWrite() >= 8) {
+        uint8_t header[8];
+        header[0] = 0xFF;
+        header[1] = 0xAA;
+        header[2] = 0x55;
+        header[3] = 0xFF;
+        
+        uint32_t len = fb->len;
+        header[4] = (uint8_t)(len & 0xFF);
+        header[5] = (uint8_t)((len >> 8) & 0xFF);
+        header[6] = (uint8_t)((len >> 16) & 0xFF);
+        header[7] = (uint8_t)((len >> 24) & 0xFF);
 
-      Serial.write(header, 8);
-      Serial.write(fb->buf, fb->len);
+        Serial.write(header, 8);
+        Serial.write(fb->buf, fb->len);
+      }
     }
     esp_camera_fb_return(fb);
   }

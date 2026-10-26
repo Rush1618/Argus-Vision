@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Maximize2, Minimize2, Eye, ShieldAlert, Camera, Sparkles } from 'lucide-react';
+import { Maximize2, Minimize2, Eye, ShieldAlert, Camera, Sparkles, Trash2 } from 'lucide-react';
 
-export default function LiveFeed({ stats, _isConnected, onSnapshot, isFlashing }) {
+export default function LiveFeed({ stats, _isConnected, onSnapshot, isFlashing, onClearCaptions }) {
   const [useAiStream, setUseAiStream] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const videoContainerRef = useRef(null);
@@ -87,6 +87,57 @@ export default function LiveFeed({ stats, _isConnected, onSnapshot, isFlashing }
           >
             <ShieldAlert size={16} />
             <span>Motion event detected ({stats.motion_level}%)</span>
+          </div>
+        )}
+
+        {/* Floating Closed Captions (CC) Overlay */}
+        {stats.current_sentence && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '54px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: 'rgba(8, 12, 18, 0.90)',
+              color: '#ffffff',
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-sm)',
+              border: 'var(--rule-hair) solid var(--color-accent)',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              fontFamily: 'var(--font-mono)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              zIndex: 'var(--z-raised)',
+              boxShadow: '0 4px 14px rgba(0, 0, 0, 0.45)',
+              maxWidth: '85%'
+            }}
+          >
+            <span style={{ color: 'var(--color-amber)', fontSize: 'var(--text-xs)', border: '1px solid var(--color-amber)', padding: '1px 4px', borderRadius: '2px' }}>
+              CC
+            </span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {stats.current_sentence}
+            </span>
+            {onClearCaptions && (
+              <button
+                type="button"
+                onClick={onClearCaptions}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--color-muted)',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+                title="Clear subtitle buffer"
+              >
+                <Trash2 size={13} />
+              </button>
+            )}
           </div>
         )}
 
