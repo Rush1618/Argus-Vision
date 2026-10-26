@@ -436,13 +436,21 @@ def stream_generator(use_ai=True):
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(stream_generator(use_ai=True),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    res = Response(stream_generator(use_ai=True),
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
+    res.headers['Access-Control-Allow-Origin'] = '*'
+    res.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return res
 
 @app.route('/raw_feed')
 def raw_feed():
-    return Response(stream_generator(use_ai=False),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
+    res = Response(stream_generator(use_ai=False),
+                   mimetype='multipart/x-mixed-replace; boundary=frame')
+    res.headers['Access-Control-Allow-Origin'] = '*'
+    res.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    res.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return res
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
