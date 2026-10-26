@@ -102,6 +102,12 @@ class VisionDetector:
             self.current_sentence = ""
             self.last_committed_word = ""
 
+    def reset_motion_history(self):
+        with self.lock:
+            self.prev_frame = None
+            self.motion_detected = False
+            self.motion_level = 0.0
+
     # -------------------------------------------------------------
     # Asynchronous Model Pre-Warming (Zero Switching Lag)
     # -------------------------------------------------------------

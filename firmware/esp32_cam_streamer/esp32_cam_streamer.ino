@@ -17,7 +17,8 @@
 
 // Wi-Fi Access Point Credentials
 const char* ap_ssid = "ESP32-CAM-Vision";
-const char* ap_password = ""; // Open network for zero friction
+const char* ap_password = "ArgusVision2026!"; // WPA2-PSK secured
+const char* api_auth_key = "argus_secure_key"; // Authorization key
 
 // Optional Home/Hotspot Wi-Fi
 const char* ssid = "";
@@ -45,17 +46,38 @@ void set_flash(int brightness) {
 #endif
 }
 
+// Check authorization header (X-Argus-Key) or URL parameter (?key=...)
+bool is_authorized(httpd_req_t *req) {
+  char buf[64];
+  if (httpd_req_get_hdr_value_str(req, "X-Argus-Key", buf, sizeof(buf)) == ESP_OK) {
+    if (strcmp(buf, api_auth_key) == 0) return true;
+  }
+  if (httpd_req_get_url_query_len(req) > 0) {
+    if (httpd_req_get_url_query_str(req, buf, sizeof(buf)) == ESP_OK) {
+      char key_val[32];
+      if (httpd_query_key_value(buf, "key", key_val, sizeof(key_val)) == ESP_OK) {
+        if (strcmp(key_val, api_auth_key) == 0) return true;
+      }
+    }
+  }
+  return false;
+}
+
 // ==========================================
 // Wi-Fi Stream Handlers
 // ==========================================
 static esp_err_t stream_handler(httpd_req_t *req) {
+  if (!is_authorized(req)) {
+    httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized - Missing valid key");
+    return ESP_FAIL;
+  }
+
   camera_fb_t *fb = NULL;
   esp_err_t res = ESP_OK;
   char part_buf[64];
 
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
   if (res != ESP_OK) return res;
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
   while (true) {
     fb = esp_camera_fb_get();
@@ -80,6 +102,11 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 }
 
 static esp_err_t capture_handler(httpd_req_t *req) {
+  if (!is_authorized(req)) {
+    httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized - Missing valid key");
+    return ESP_FAIL;
+  }
+
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
     httpd_resp_send_500(req);
@@ -87,17 +114,20 @@ static esp_err_t capture_handler(httpd_req_t *req) {
   }
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   esp_err_t res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
   esp_camera_fb_return(fb);
   return res;
 }
 
 static esp_err_t led_handler(httpd_req_t *req) {
+  if (!is_authorized(req)) {
+    httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized - Missing valid key");
+    return ESP_FAIL;
+  }
+
   char buf[64];
   int state = 0;
   int brightness = 255;
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
 
   if (httpd_req_get_url_query_len(req) > 0) {
@@ -115,7 +145,6 @@ static esp_err_t led_handler(httpd_req_t *req) {
 }
 
 static esp_err_t status_handler(httpd_req_t *req) {
-  httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   httpd_resp_set_type(req, "application/json");
   char json[256];
   snprintf(json, sizeof(json),
@@ -230,7 +259,11 @@ void setup() {
 
   // Start Wi-Fi SoftAP
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(ap_ssid);
+  if (strlen(ap_password) >= 8) {
+    WiFi.softAP(ap_ssid, ap_password);
+  } else {
+    WiFi.softAP(ap_ssid);
+  }
   startCameraServer();
 
   digitalWrite(STATUS_LED_PIN, LOW); // On = Ready

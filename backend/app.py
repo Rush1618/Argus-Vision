@@ -2,12 +2,18 @@ import cv2
 import time
 import threading
 import os
+import sys
 import requests
 import numpy as np
 import serial
 import mss
 from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
 from detector import VisionDetector
 
 app = Flask(__name__, static_folder="captures")
@@ -18,7 +24,7 @@ os.makedirs(CAPTURES_DIR, exist_ok=True)
 
 # Configuration & State
 config = {
-    "source_type": "screen",   # Defaults to laptop screen for real optical stream
+    "source_type": "standby",   # Defaults to standby to prevent accidental screen/camera disclosure
     "com_port": "COM9",
     "baud_rate": 921600,
     "esp32_ip": "192.168.4.1",
@@ -42,6 +48,12 @@ ser_lock = threading.Lock()
 current_serial_port = None
 current_serial_baud = None
 
+# Truthful connection telemetry
+selected_source = "standby"
+active_source = None
+source_connected = False
+source_error = "Standby mode active"
+
 import platform
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -54,6 +66,25 @@ def open_webcam(index):
         except Exception:
             pass
     return cv2.VideoCapture(index)
+
+def release_source_resources(cap=None, stream_response=None, ser=None):
+    """Cleanly close and release camera handles, HTTP streams, and serial ports."""
+    if cap is not None:
+        try:
+            cap.release()
+        except Exception:
+            pass
+    if stream_response is not None:
+        try:
+            stream_response.close()
+        except Exception:
+            pass
+    if ser is not None:
+        try:
+            with ser_lock:
+                ser.close()
+        except Exception:
+            pass
 
 def get_serial_connection():
     global ser_instance, current_serial_port, current_serial_baud
@@ -84,8 +115,10 @@ def send_serial_cmd(cmd_str):
         if ser_instance and ser_instance.is_open:
             try:
                 ser_instance.write((cmd_str + "\n").encode())
+                return True
             except Exception:
-                pass
+                return False
+        return False
 
 def get_esp32_host():
     raw = config["esp32_ip"].strip()
@@ -98,18 +131,83 @@ def get_esp32_host():
 
 def get_esp32_stream_url():
     host = get_esp32_host()
-    return f"http://{host}:81/stream"
+    return f"http://{host}:81/stream?key=argus_secure_key"
 
 sct_instance = None
 
-def generate_simulated_frame(message="STANDBY..."):
+def generate_standby_frame(status_text="STANDBY / NO CAMERA CONNECTED", sub_text=""):
     w, h = 640, 480
-    frame = np.zeros((h, w, 3), dtype=np.uint8)
-    cv2.putText(frame, message, (40, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 220, 180), 2)
+    frame = np.full((h, w, 3), 16, dtype=np.uint8)
+
+    # Grid background lines for professional telemetry look
+    for x in range(0, w, 40):
+        cv2.line(frame, (x, 0), (x, h), (26, 26, 32), 1)
+    for y in range(0, h, 40):
+        cv2.line(frame, (0, y), (w, y), (26, 26, 32), 1)
+
+    # Center crosshair and badge box
+    cv2.circle(frame, (w // 2, h // 2), 60, (0, 160, 220), 1)
+    cv2.line(frame, (w // 2 - 80, h // 2), (w // 2 + 80, h // 2), (0, 160, 220), 1)
+    cv2.line(frame, (w // 2, h // 2 - 80), (w // 2, h // 2 + 80), (0, 160, 220), 1)
+
+    # Status text
+    cv2.putText(frame, "ARGUS VISION", (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 180), 2)
+    cv2.putText(frame, status_text, (30, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 220, 220), 1)
+    if sub_text:
+        cv2.putText(frame, sub_text, (30, 115), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (140, 140, 160), 1)
+
+    # Time stamp footer
+    ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    cv2.putText(frame, ts, (30, h - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (90, 100, 110), 1)
     return frame
 
+def generate_simulated_frame(message="SIMULATED RADAR FEED"):
+    w, h = 640, 480
+    frame = np.full((h, w, 3), 12, dtype=np.uint8)
+
+    # Animated radar sweep
+    cx, cy = w // 2, h // 2
+    radius = 160
+    cv2.circle(frame, (cx, cy), radius, (0, 180, 120), 1)
+    cv2.circle(frame, (cx, cy), radius // 2, (0, 100, 70), 1)
+
+    angle = (time.time() * 90) % 360
+    rad = np.radians(angle)
+    sweep_x = int(cx + radius * np.cos(rad))
+    sweep_y = int(cy + radius * np.sin(rad))
+    cv2.line(frame, (cx, cy), (sweep_x, sweep_y), (0, 255, 170), 2)
+
+    # Simulated targets
+    target_angles = [45, 160, 270]
+    for ta in target_angles:
+        trad = np.radians(ta)
+        tx = int(cx + (radius * 0.7) * np.cos(trad))
+        ty = int(cy + (radius * 0.7) * np.sin(trad))
+        cv2.circle(frame, (tx, ty), 4, (0, 220, 255), -1)
+
+    cv2.putText(frame, "SIMULATOR ACTIVE", (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 170), 2)
+    cv2.putText(frame, message, (30, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (180, 220, 200), 1)
+    ts = time.strftime("%H:%M:%S", time.gmtime())
+    cv2.putText(frame, f"REC // {ts}", (w - 180, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 255), 1)
+    return frame
+
+def get_current_telemetry():
+    """Returns accurate connection and source telemetry."""
+    with lock:
+        res = dict(latest_stats)
+        res["selected_source"] = config.get("source_type", "standby")
+        res["active_source"] = active_source
+        res["connected"] = bool(source_connected)
+        res["source_error"] = source_error
+        res["source"] = config.get("source_type", "standby")
+        res["last_frame_age"] = round(time.time() - last_frame_time, 2) if last_frame_time else None
+        res["esp32_ip"] = config.get("esp32_ip")
+        res["com_port"] = config.get("com_port")
+    return res
+
 def video_capture_worker():
-    global latest_raw_frame, latest_processed_frame, latest_stats, last_frame_time, sct_instance
+    global latest_raw_frame, latest_processed_frame, latest_stats, last_frame_time
+    global sct_instance, active_source, source_connected, source_error, selected_source
     cap = None
     last_source = None
     stream_response = None
@@ -119,10 +217,27 @@ def video_capture_worker():
 
     while True:
         try:
-            curr_source = config["source_type"]
+            curr_source = config.get("source_type", "standby")
+            selected_source = curr_source
             frame = None
 
-            if curr_source == "usb_serial":
+            # Handle source transition cleanly
+            if curr_source != last_source:
+                release_source_resources(cap, stream_response, ser_instance)
+                cap = None
+                stream_response = None
+                serial_buf = b''
+                stream_bytes = b''
+                detector.reset_motion_history()
+                last_source = curr_source
+                last_frame_time = 0
+
+            if curr_source == "standby":
+                active_source = None
+                source_connected = False
+                source_error = "Standby mode - camera capture inactive"
+
+            elif curr_source == "usb_serial":
                 ser = get_serial_connection()
                 if ser and ser.is_open:
                     try:
@@ -163,14 +278,18 @@ def video_capture_worker():
                                     if decoded is not None:
                                         frame = decoded
                                         last_frame_time = time.time()
-                    except Exception:
-                        pass
+                                        active_source = "usb_serial"
+                                        source_connected = True
+                                        source_error = None
+                    except Exception as e:
+                        source_error = f"Serial read error: {e}"
+                else:
+                    source_error = f"Serial port {config['com_port']} closed or unavailable"
 
             elif curr_source == "esp32_wifi":
                 url = get_esp32_stream_url()
                 try:
-                    if stream_response is None or last_source != "esp32_wifi":
-                        last_source = "esp32_wifi"
+                    if stream_response is None:
                         stream_response = requests.get(url, stream=True, timeout=2.0)
                         stream_bytes = b''
 
@@ -183,14 +302,20 @@ def video_capture_worker():
                             if a != -1 and b != -1 and b > a:
                                 jpg = stream_bytes[a:b+2]
                                 stream_bytes = stream_bytes[b+2:]
-                                frame = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
-                                if frame is not None:
+                                decoded = cv2.imdecode(np.frombuffer(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+                                if decoded is not None:
+                                    frame = decoded
                                     last_frame_time = time.time()
+                                    active_source = "esp32_wifi"
+                                    source_connected = True
+                                    source_error = None
                         else:
                             stream_response = None
                     else:
+                        source_error = f"ESP32 HTTP status {stream_response.status_code}"
                         stream_response = None
-                except Exception:
+                except Exception as e:
+                    source_error = f"ESP32 stream unreachable ({e})"
                     stream_response = None
 
             elif curr_source == "screen":
@@ -206,73 +331,53 @@ def video_capture_worker():
                     target_h = int(h * (target_w / w))
                     frame = cv2.resize(bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
                     last_frame_time = time.time()
-                except Exception:
+                    active_source = "screen"
+                    source_connected = True
+                    source_error = None
+                except Exception as e:
                     sct_instance = None
+                    source_error = f"Screen capture error: {e}"
 
             elif curr_source == "simulated":
-                try:
-                    if sct_instance is None:
-                        sct_instance = mss.mss()
-                    mon = sct_instance.monitors[1] if len(sct_instance.monitors) > 1 else sct_instance.monitors[0]
-                    sct_img = sct_instance.grab(mon)
-                    raw_screen = np.array(sct_img)
-                    bgr = cv2.cvtColor(raw_screen, cv2.COLOR_BGRA2BGR)
-                    h, w = bgr.shape[:2]
-                    target_w = 640
-                    target_h = int(h * (target_w / w))
-                    frame = cv2.resize(bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
-                    last_frame_time = time.time()
-                except Exception:
-                    sct_instance = None
+                frame = generate_simulated_frame("SYNTHETIC SENSOR FEED")
+                last_frame_time = time.time()
+                active_source = "simulated"
+                source_connected = True
+                source_error = None
 
             elif curr_source == "webcam":
-                if cap is None or last_source != "webcam":
-                    if cap:
-                        cap.release()
+                if cap is None:
                     cap = open_webcam(config["webcam_index"])
-                    last_source = "webcam"
                 
                 success, f = cap.read() if cap and cap.isOpened() else (False, None)
                 if success and f is not None:
                     frame = f
                     last_frame_time = time.time()
+                    active_source = "webcam"
+                    source_connected = True
+                    source_error = None
                 else:
-                    if cap:
-                        cap.release()
-                    cap = cv2.VideoCapture(config["webcam_index"])
-                    success, f = cap.read() if cap and cap.isOpened() else (False, None)
-                    if success and f is not None:
-                        frame = f
-                        last_frame_time = time.time()
+                    source_error = f"Webcam index {config['webcam_index']} failed to capture"
 
-            # If selected hardware source has no camera connected, gracefully fallback to laptop screen
-            if frame is None and (time.time() - last_frame_time > 2.0):
-                try:
-                    if sct_instance is None:
-                        sct_instance = mss.mss()
-                    mon = sct_instance.monitors[1] if len(sct_instance.monitors) > 1 else sct_instance.monitors[0]
-                    sct_img = sct_instance.grab(mon)
-                    raw_screen = np.array(sct_img)
-                    bgr = cv2.cvtColor(raw_screen, cv2.COLOR_BGRA2BGR)
-                    h, w = bgr.shape[:2]
-                    target_w = 640
-                    target_h = int(h * (target_w / w))
-                    frame = cv2.resize(bgr, (target_w, target_h), interpolation=cv2.INTER_AREA)
-                    last_frame_time = time.time()
-                except Exception:
-                    sct_instance = None
-
-            is_conn = (time.time() - last_frame_time) < 1.5
+            # Check signal timeout: NO SILENT SCREEN FALLBACK
+            now = time.time()
+            if curr_source != "standby" and (now - last_frame_time > 1.8):
+                source_connected = False
+                active_source = None
+                if not source_error:
+                    source_error = f"Signal lost from {curr_source}"
 
             if frame is not None:
                 annotated, stats = detector.process_frame(frame)
-                stats["connected"] = is_conn
+                stats["connected"] = True
+                stats["selected_source"] = curr_source
+                stats["active_source"] = curr_source
                 stats["source"] = curr_source
+                stats["source_error"] = None
                 stats["esp32_ip"] = config["esp32_ip"]
                 stats["com_port"] = config["com_port"]
 
                 if config["auto_capture_motion"] and stats.get("motion_detected"):
-                    now = time.time()
                     if now - config["last_motion_capture_time"] > 3.0:
                         config["last_motion_capture_time"] = now
                         filename = f"motion_alert_{int(now)}.jpg"
@@ -289,12 +394,28 @@ def video_capture_worker():
                     latest_raw_jpeg = buf_raw.tobytes()
                     latest_stats = stats
             else:
-                if not is_conn:
-                    with lock:
-                        latest_stats["connected"] = False
+                # Provide an explicit standby card on the video stream
+                status_title = f"{curr_source.upper()}: DISCONNECTED" if curr_source != "standby" else "STANDBY / NO SOURCE"
+                sub_title = source_error or "Select a live camera source"
+                standby_card = generate_standby_frame(status_title, sub_title)
+                _, buf_ai = cv2.imencode('.jpg', standby_card, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                _, buf_raw = cv2.imencode('.jpg', standby_card, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                with lock:
+                    latest_raw_frame = standby_card
+                    latest_processed_frame = standby_card
+                    latest_ai_jpeg = buf_ai.tobytes()
+                    latest_raw_jpeg = buf_raw.tobytes()
+                    latest_stats["connected"] = False
+                    latest_stats["selected_source"] = curr_source
+                    latest_stats["active_source"] = None
+                    latest_stats["source"] = curr_source
+                    latest_stats["source_error"] = source_error
+                    latest_stats["fps"] = 0
+                    latest_stats["detections"] = 0
 
             time.sleep(0.005)
-        except Exception:
+        except Exception as e:
+            source_error = f"Pipeline loop error: {e}"
             time.sleep(0.02)
 
 thread = threading.Thread(target=video_capture_worker, daemon=True)
@@ -305,9 +426,7 @@ def stream_generator(use_ai=True):
         with lock:
             jpeg_bytes = latest_ai_jpeg if use_ai else latest_raw_jpeg
             if jpeg_bytes is None:
-                standby = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(standby, "INITIALIZING STREAM...", (140, 240),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 180), 2)
+                standby = generate_standby_frame("INITIALIZING STREAM...")
                 _, buffer = cv2.imencode('.jpg', standby, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 jpeg_bytes = buffer.tobytes()
 
@@ -327,28 +446,66 @@ def raw_feed():
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    with lock:
-        res = dict(latest_stats)
-    return jsonify(res)
+    return jsonify(get_current_telemetry())
+
+VALID_SOURCES = {"standby", "screen", "webcam", "usb_serial", "esp32_wifi", "simulated"}
+VALID_MODES = {"face", "gesture", "objects", "object", "motion", "edges", "edge", "night_vision", "night", "raw"}
+MODE_ALIASES = {
+    "object": "objects",
+    "edge": "edges",
+    "night": "night_vision"
+}
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def handle_config():
     if request.method == 'POST':
         data = request.json or {}
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "error": "Request body must be a JSON object"}), 400
+
         if "source_type" in data:
-            config["source_type"] = data["source_type"]
+            st = str(data["source_type"]).strip().lower()
+            if st not in VALID_SOURCES:
+                return jsonify({"success": False, "error": f"Invalid source_type '{st}'. Allowed: {sorted(list(VALID_SOURCES))}"}), 400
+            config["source_type"] = st
+
         if "esp32_ip" in data:
-            config["esp32_ip"] = data["esp32_ip"]
+            raw_ip = str(data["esp32_ip"]).strip()
+            # Prevent link-local/cloud metadata SSRF
+            if raw_ip.startswith("169.254."):
+                return jsonify({"success": False, "error": "Link-local / metadata addresses are forbidden"}), 400
+            config["esp32_ip"] = raw_ip
+
         if "com_port" in data:
-            config["com_port"] = data["com_port"]
+            config["com_port"] = str(data["com_port"]).strip()
+
         if "mode" in data:
-            detector.mode = data["mode"]
+            m = str(data["mode"]).strip().lower()
+            if m not in VALID_MODES:
+                return jsonify({"success": False, "error": f"Invalid mode '{m}'. Allowed: {sorted(list(VALID_MODES))}"}), 400
+            detector.mode = MODE_ALIASES.get(m, m)
+
         if "motion_threshold" in data:
-            detector.motion_threshold = int(data["motion_threshold"])
+            try:
+                mt = int(data["motion_threshold"])
+                if mt < 1 or mt > 255:
+                    return jsonify({"success": False, "error": "motion_threshold must be between 1 and 255"}), 400
+                detector.motion_threshold = mt
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "error": "motion_threshold must be an integer"}), 400
+
         if "min_contour_area" in data:
-            detector.min_contour_area = int(data["min_contour_area"])
+            try:
+                mca = int(data["min_contour_area"])
+                if mca < 10 or mca > 50000:
+                    return jsonify({"success": False, "error": "min_contour_area must be between 10 and 50000"}), 400
+                detector.min_contour_area = mca
+            except (ValueError, TypeError):
+                return jsonify({"success": False, "error": "min_contour_area must be an integer"}), 400
+
         if "auto_capture_motion" in data:
             config["auto_capture_motion"] = bool(data["auto_capture_motion"])
+
         return jsonify({"success": True, "config": config, "mode": detector.mode})
 
     return jsonify({"config": config, "mode": detector.mode})
@@ -356,34 +513,53 @@ def handle_config():
 @app.route('/api/flash', methods=['POST'])
 def trigger_flash():
     data = request.json or {}
-    state = data.get("state", not config["flash_state"])
-    brightness = data.get("brightness", config["flash_brightness"])
-    config["flash_state"] = state
-    config["flash_brightness"] = brightness
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "Request body must be a JSON object"}), 400
 
-    if config["source_type"] == "usb_serial":
-        if state:
-            send_serial_cmd(f"LB{brightness}")
-        else:
-            send_serial_cmd("L0")
-    else:
+    state = bool(data.get("state", not config["flash_state"]))
+    try:
+        brightness = int(data.get("brightness", config["flash_brightness"]))
+        brightness = max(0, min(255, brightness))
+    except (ValueError, TypeError):
+        brightness = 255
+
+    curr_source = config.get("source_type")
+    if curr_source == "usb_serial":
+        ser = get_serial_connection()
+        if not ser or not ser.is_open:
+            return jsonify({"success": False, "error": f"Serial port {config['com_port']} is not connected"}), 503
+        cmd = f"LB{brightness}" if state else "L0"
+        ok = send_serial_cmd(cmd)
+        if not ok:
+            return jsonify({"success": False, "error": "Failed to transmit command to serial port"}), 502
+    elif curr_source == "esp32_wifi":
         try:
             host = get_esp32_host()
-            url = f"http://{host}/led?state={1 if state else 0}&brightness={brightness}"
-            requests.get(url, timeout=1.5)
-        except Exception:
-            pass
+            url = f"http://{host}/led?state={1 if state else 0}&brightness={brightness}&key=argus_secure_key"
+            resp = requests.get(url, timeout=1.5)
+            if resp.status_code != 200:
+                return jsonify({"success": False, "error": f"ESP32 returned status {resp.status_code}"}), 502
+        except Exception as e:
+            return jsonify({"success": False, "error": f"ESP32 camera unreachable ({e})"}), 502
+    else:
+        return jsonify({"success": False, "error": "Flash LED is only available when an ESP32 camera is connected"}), 400
 
-    return jsonify({"success": True, "state": state, "brightness": brightness})
+    config["flash_state"] = state
+    config["flash_brightness"] = brightness
+    return jsonify({"success": True, "state": state, "brightness": brightness, "acknowledged": True})
+
+import uuid
 
 @app.route('/api/capture', methods=['POST'])
 def manual_capture():
     with lock:
         frame = latest_processed_frame
     if frame is not None:
-        filename = f"capture_{int(time.time())}.jpg"
+        filename = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
         filepath = os.path.join(CAPTURES_DIR, filename)
-        cv2.imwrite(filepath, frame)
+        written = cv2.imwrite(filepath, frame)
+        if not written:
+            return jsonify({"success": False, "error": "Failed to write capture to disk"}), 500
         return jsonify({"success": True, "filename": filename, "url": f"/captures/{filename}"})
     return jsonify({"success": False, "error": "No frame available"}), 500
 
@@ -460,4 +636,6 @@ def train_gesture():
     })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, threaded=True, debug=False)
+    host = os.environ.get("ARGUS_HOST", "127.0.0.1")
+    port = int(os.environ.get("ARGUS_PORT", 5000))
+    app.run(host=host, port=port, threaded=True, debug=False)

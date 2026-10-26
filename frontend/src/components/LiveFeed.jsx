@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Maximize2, Minimize2, Eye, ShieldAlert, Camera, Sparkles, Trash2 } from 'lucide-react';
+import { getApiUrl } from '../config';
 
 export default function LiveFeed({ stats, _isConnected, onSnapshot, isFlashing, onClearCaptions }) {
   const [useAiStream, setUseAiStream] = useState(true);
@@ -7,8 +8,8 @@ export default function LiveFeed({ stats, _isConnected, onSnapshot, isFlashing, 
   const videoContainerRef = useRef(null);
 
   const streamUrl = useAiStream
-    ? 'http://localhost:5000/video_feed'
-    : 'http://localhost:5000/raw_feed';
+    ? getApiUrl('/video_feed')
+    : getApiUrl('/raw_feed');
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {

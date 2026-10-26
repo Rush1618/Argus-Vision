@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Images, Download, X, RefreshCw, Trash2 } from 'lucide-react';
+import { getApiUrl } from '../config';
 
 export default function SnapshotGallery({ captures, onRefresh, onDelete }) {
   const [selectedImage, setSelectedImage] = useState(null);
@@ -76,7 +77,7 @@ export default function SnapshotGallery({ captures, onRefresh, onDelete }) {
             >
               <div style={{ width: '100%', height: '110px', overflow: 'hidden', position: 'relative' }}>
                 <img
-                  src={`http://localhost:5000${item.url}`}
+                  src={getApiUrl(item.url)}
                   alt={item.filename}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   fetchPriority={idx === 0 ? 'high' : 'auto'}
@@ -183,7 +184,7 @@ export default function SnapshotGallery({ captures, onRefresh, onDelete }) {
               </span>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <a
-                  href={`http://localhost:5000${selectedImage.url}`}
+                  href={getApiUrl(selectedImage.url)}
                   download={selectedImage.filename}
                   className="btn btn-secondary"
                   style={{ padding: '6px 12px', fontSize: 'var(--text-xs)' }}

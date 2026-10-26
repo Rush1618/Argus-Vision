@@ -36,7 +36,7 @@ export default function ControlPanel({
 }) {
   const [comPort, setComPort] = useState(config.com_port || 'COM9');
   const [ipInput, setIpInput] = useState(config.esp32_ip || '192.168.4.1');
-  const [sourceType, setSourceType] = useState(config.source_type || 'screen');
+  const [sourceType, setSourceType] = useState(config.source_type || 'standby');
   const [savedBadge, setSavedBadge] = useState(false);
   const [autoCapture, setAutoCapture] = useState(config.auto_capture_motion || false);
   const [motionSens, setMotionSens] = useState(25);
@@ -65,17 +65,19 @@ export default function ControlPanel({
     }
   };
 
-  const handleSaveNetwork = (e) => {
+  const handleSaveNetwork = async (e) => {
     e.preventDefault();
-    onConfigUpdate({ 
+    const res = await onConfigUpdate({ 
       source_type: sourceType,
       com_port: comPort,
       esp32_ip: ipInput,
       auto_capture_motion: autoCapture,
       motion_threshold: motionSens
     });
-    setSavedBadge(true);
-    setTimeout(() => setSavedBadge(false), 2000);
+    if (res && res.success) {
+      setSavedBadge(true);
+      setTimeout(() => setSavedBadge(false), 2000);
+    }
   };
 
   const aiModes = [
@@ -107,13 +109,15 @@ export default function ControlPanel({
         <form onSubmit={handleSaveNetwork} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
             {[
+              { id: 'standby', label: 'Standby (Safe)', icon: ShieldAlert },
               { id: 'screen', label: 'Laptop screen', icon: Monitor },
               { id: 'usb_serial', label: 'USB serial (ESP32)', icon: Usb },
               { id: 'esp32_wifi', label: 'Wi-Fi network', icon: Wifi },
-              { id: 'webcam', label: 'USB webcam', icon: Camera }
+              { id: 'webcam', label: 'USB webcam', icon: Camera },
+              { id: 'simulated', label: 'Radar simulator', icon: Radio }
             ].map((src) => {
               const Icon = src.icon;
-              const isSelected = sourceType === src.id;
+              const isSelected = (config.source_type || sourceType) === src.id;
               return (
                 <button
                   type="button"
@@ -141,6 +145,22 @@ export default function ControlPanel({
               );
             })}
           </div>
+
+          {stats.source_error && (
+            <div
+              style={{
+                padding: '6px 10px',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid var(--color-rule)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--color-muted)',
+                fontFamily: 'var(--font-mono)'
+              }}
+            >
+              Hardware state: {stats.source_error}
+            </div>
+          )}
 
           {sourceType === 'usb_serial' && (
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -410,7 +430,7 @@ export default function ControlPanel({
             style={{ width: '100%', marginTop: '8px' }}
           >
             <Camera size={16} />
-            <span>{isCapturing ? 'Capturing frame…' : 'Capture high-resolution frame'}</span>
+            <span>{isCapturing ? 'Saving snapshot…' : 'Save current processed frame'}</span>
           </button>
         </div>
       </div>
